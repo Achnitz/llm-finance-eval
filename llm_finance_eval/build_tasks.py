@@ -1,0 +1,263 @@
+"""Build the benchmark task set.
+
+Every task is generated from explicit inputs and its reference answer is
+computed here, in code. That keeps the answer key auditable: if a number
+looks wrong, the formula that produced it is a few lines below.
+
+Run:  python -m llm_finance_eval.build_tasks  ->  data/tasks.jsonl
+"""
+from __future__ import annotations
+
+import json
+from pathlib import Path
+
+from .finance import annuity_payment, irr, npv, pv_of_flows
+
+OUT = Path(__file__).resolve().parent.parent / "data" / "tasks.jsonl"
+
+FINAL_INSTRUCTION = (
+    "Show your reasoning, then end with a single line in the format "
+    "'FINAL ANSWER: <number>' (no units, no thousands separators)."
+)
+
+
+def task(tid, category, difficulty, prompt, answer, unit, tol=0.005, solution=""):
+    return {
+        "id": tid,
+        "category": category,
+        "difficulty": difficulty,
+        "prompt": f"{prompt}\n\n{FINAL_INSTRUCTION}",
+        "answer": round(answer, 6),
+        "unit": unit,
+        "rel_tolerance": tol,
+        "solution": solution,
+    }
+
+
+def build() -> list[dict]:
+    t: list[dict] = []
+
+    # ---------------- Cost of capital ----------------
+    ke = 0.045 + 1.1 * 0.055 + 0.025
+    t.append(task(
+        "coc-01", "cost_of_capital", "easy",
+        "Estimate the cost of equity for an emerging-market utility using CAPM with a "
+        "country risk premium. Risk-free rate 4.5%, levered beta 1.1, equity risk premium "
+        "5.5%, country risk premium 2.5% (added to the CAPM result). Answer in percent.",
+        ke * 100, "%", solution="ke = rf + beta*ERP + CRP",
+    ))
+
+    E, D, k_e, k_d, tax = 600, 400, 0.14, 0.10, 0.34
+    wacc = E / (E + D) * k_e + D / (E + D) * k_d * (1 - tax)
+    t.append(task(
+        "coc-02", "cost_of_capital", "easy",
+        f"A company has market value of equity of {E} and debt of {D} (millions). Cost of "
+        f"equity is 14%, pre-tax cost of debt is 10% and the marginal tax rate is 34%. "
+        "Compute the WACC in percent.",
+        wacc * 100, "%", solution="WACC = E/V*ke + D/V*kd*(1-t)",
+    ))
+
+    bl, de, tx, de_new = 1.2, 0.5, 0.25, 1.0
+    bu = bl / (1 + (1 - tx) * de)
+    bl_new = bu * (1 + (1 - tx) * de_new)
+    t.append(task(
+        "coc-03", "cost_of_capital", "medium",
+        "A peer has a levered beta of 1.20, a debt-to-equity ratio of 0.50 and a 25% tax rate. "
+        "Unlever the beta with the Hamada formula and relever it for a target capital "
+        "structure with debt-to-equity of 1.00 (same tax rate). Report the relevered beta.",
+        bl_new, "x", solution="bu = bl/(1+(1-t)D/E); bl' = bu*(1+(1-t)D'/E')",
+    ))
+
+    real, infl = 0.06, 0.04
+    nominal = (1 + real) * (1 + infl) - 1
+    t.append(task(
+        "coc-04", "cost_of_capital", "easy",
+        "A regulator sets a real WACC of 6.0%. Expected inflation is 4.0%. Using the exact "
+        "Fisher relation, what is the nominal WACC in percent?",
+        nominal * 100, "%", solution="(1+r)(1+i)-1",
+    ))
+
+    # ---------------- Valuation ----------------
+    fcf1, w, g = 120, 0.10, 0.03
+    t.append(task(
+        "val-01", "valuation", "easy",
+        "Next year's free cash flow to the firm is 120. WACC is 10% and the perpetual "
+        "growth rate is 3%. What is the value of the firm today (Gordon growth)?",
+        fcf1 / (w - g), "currency", solution="V = FCF1/(WACC-g)",
+    ))
+
+    flows, w, g = [100, 110, 120], 0.09, 0.02
+    tv = flows[-1] * (1 + g) / (w - g)
+    ev = pv_of_flows(flows, w) + tv / (1 + w) ** 3
+    t.append(task(
+        "val-02", "valuation", "medium",
+        "Explicit-period FCFF forecasts are 100, 110 and 120 for years 1 to 3 (end-of-year). "
+        "After year 3, cash flows grow at 2% forever. WACC is 9%. Compute enterprise value today.",
+        ev, "currency", solution="PV(explicit) + PV(TV at year 3 = FCF3*(1+g)/(WACC-g))",
+    ))
+
+    ev_, nd, mi, inv, sh = 2500, 800, 120, 60, 100
+    eq_ps = (ev_ - nd - mi + inv) / sh
+    t.append(task(
+        "val-03", "valuation", "easy",
+        "Enterprise value is 2,500 (millions). Net debt is 800, non-controlling interests "
+        "are 120 and non-consolidated investments are worth 60. There are 100 million shares. "
+        "What is the equity value per share?",
+        eq_ps, "currency/share", solution="(EV - net debt - NCI + investments)/shares",
+    ))
+
+    peers, ebitda, nd2 = [7.5, 8.2, 9.0, 6.8, 8.6], 210, 600
+    med = sorted(peers)[len(peers) // 2]
+    t.append(task(
+        "val-04", "valuation", "easy",
+        f"Peer EV/EBITDA multiples are {peers}. Apply the median to a target with EBITDA of "
+        f"{ebitda} and net debt of {nd2}. What is the implied equity value?",
+        med * ebitda - nd2, "currency", solution="median multiple * EBITDA - net debt",
+    ))
+
+    syn, gs, ws, cost = 30, 0.02, 0.10, 50
+    t.append(task(
+        "val-05", "valuation", "medium",
+        "Run-rate cost synergies are 30 per year starting next year, growing at 2% a year "
+        "forever. The discount rate is 10%. One-off integration costs of 50 are paid today. "
+        "What is the net present value of the synergies?",
+        syn / (ws - gs) - cost, "currency", solution="30/(0.10-0.02) - 50",
+    ))
+
+    debt, tx2 = 500, 0.34
+    t.append(task(
+        "val-06", "valuation", "easy",
+        "A firm keeps permanent debt of 500 at a fixed amount. The tax rate is 34% and the "
+        "tax shield has the same risk as the debt. What is the present value of the interest "
+        "tax shield?",
+        debt * tx2, "currency", solution="PV(TS) = t*D for perpetual fixed debt",
+    ))
+
+    # ---------------- Capital budgeting ----------------
+    cf = [-1000] + [300] * 5
+    t.append(task(
+        "cb-01", "capital_budgeting", "easy",
+        "A project costs 1,000 today and generates 300 at the end of each of the next five "
+        "years. The discount rate is 8%. What is the NPV?",
+        npv(0.08, cf), "currency", solution="sum CF_t/(1.08)^t",
+    ))
+
+    cf2 = [-1000, 250, 300, 350, 400, 450]
+    t.append(task(
+        "cb-02", "capital_budgeting", "medium",
+        "Cash flows are -1,000 today, then 250, 300, 350, 400 and 450 at the end of years 1 "
+        "to 5. What is the IRR in percent?",
+        irr(cf2) * 100, "%", solution="rate where NPV = 0",
+    ))
+
+    t.append(task(
+        "cb-03", "capital_budgeting", "medium",
+        "A regulated asset requires capex of 1,000 and the allowed revenue is set as a level "
+        "annual payment that recovers the investment over 30 years at an 8% allowed return "
+        "(end-of-year payments, ignore O&M and taxes). What is the annual allowed revenue?",
+        annuity_payment(1000, 0.08, 30), "currency", solution="capital recovery factor",
+    ))
+
+    # ---------------- Deal mechanics ----------------
+    hp, nd3, nwc_t, nwc_a = 1000, 210, 150, 132
+    t.append(task(
+        "deal-01", "deal_mechanics", "medium",
+        "An SPA uses completion accounts on a cash-free/debt-free basis. Headline enterprise "
+        "value is 1,000. Net debt at closing is 210. The agreed normalized working capital "
+        "target is 150 and actual closing working capital is 132 (dollar-for-dollar "
+        "adjustment, no collar). What equity purchase price does the buyer pay?",
+        hp - nd3 + (nwc_a - nwc_t), "currency",
+        solution="EV - net debt + (actual NWC - target NWC)",
+    ))
+
+    t.append(task(
+        "deal-02", "deal_mechanics", "easy",
+        "Under a locked-box mechanism the agreed equity price is 900. Between the locked-box "
+        "date and closing the seller received a dividend of 10 and management fees of 5, both "
+        "classified as leakage. No permitted leakage applies. What should the buyer pay?",
+        900 - 15, "currency", solution="price - leakage",
+    ))
+
+    probs, pays, years, rate = [0.3, 0.5, 0.2], [0, 100, 250], 2, 0.12
+    ev_earn = sum(p * x for p, x in zip(probs, pays)) / (1 + rate) ** years
+    t.append(task(
+        "deal-03", "deal_mechanics", "medium",
+        "An earn-out pays 0 (probability 30%), 100 (probability 50%) or 250 (probability "
+        "20%) at the end of year 2. Discounting at 12%, what is its present value?",
+        ev_earn, "currency", solution="E[payout]/(1.12)^2",
+    ))
+
+    ni_a, sh_a, ni_t, price, px, syn_at = 500, 250, 80, 1200, 20, 20
+    new_sh = sh_a + price / px
+    eps0, eps1 = ni_a / sh_a, (ni_a + ni_t + syn_at) / new_sh
+    t.append(task(
+        "deal-04", "deal_mechanics", "hard",
+        "Acquirer net income 500, 250 million shares. Target net income 80. The acquirer pays "
+        "1,200 entirely in new shares issued at 20 per share. After-tax synergies are 20 in "
+        "year one. What is the year-one EPS accretion (+) or dilution (-) in percent?",
+        (eps1 / eps0 - 1) * 100, "%", tol=0.01,
+        solution="EPS_pro forma = (500+80+20)/(250+60) vs 2.00",
+    ))
+
+    eq_in, eq_out, n = 400, 1000, 5
+    t.append(task(
+        "deal-05", "deal_mechanics", "easy",
+        "A sponsor invests 400 of equity and exits after 5 years receiving 1,000, with no "
+        "interim distributions. What is the IRR in percent?",
+        ((eq_out / eq_in) ** (1 / n) - 1) * 100, "%", solution="MOIC^(1/n)-1",
+    ))
+
+    # ---------------- Accounting / impairment ----------------
+    cfs, r_imp, carrying = [180, 190, 200, 210, 220], 0.09, 950
+    viu = pv_of_flows(cfs, r_imp)
+    t.append(task(
+        "acc-01", "accounting", "medium",
+        "Under IAS 36, a cash-generating unit has a carrying amount of 950. Its projected "
+        "pre-tax cash flows are 180, 190, 200, 210 and 220 for years 1-5, after which the "
+        "asset is retired with no residual value. The pre-tax discount rate is 9%. Fair value "
+        "less costs of disposal is 700. What impairment loss should be recognised? "
+        "(Answer 0 if none.)",
+        max(0.0, carrying - max(viu, 700)), "currency",
+        solution="recoverable = max(VIU, FVLCD); loss = carrying - recoverable",
+    ))
+
+    # ---------------- Project finance / credit ----------------
+    cfads, dscr, rpf, yrs = 120, 1.30, 0.09, 10
+    t.append(task(
+        "pf-01", "project_finance", "hard",
+        "A project generates CFADS of 120 per year for 10 years (end-of-year). Lenders require "
+        "a minimum DSCR of 1.30 in every year and the interest rate is 9%. With debt service "
+        "sculpted to exactly CFADS/1.30 each year, what is the maximum debt size?",
+        pv_of_flows([cfads / dscr] * yrs, rpf), "currency",
+        solution="Debt = PV(CFADS/DSCR) at the debt rate",
+    ))
+
+    t.append(task(
+        "pf-02", "project_finance", "easy",
+        "CFADS for the year is 150 and scheduled debt service (interest + principal) is 110. "
+        "What is the DSCR?",
+        150 / 110, "x", solution="CFADS / debt service",
+    ))
+
+    eb, cov, nd4 = 300, 3.5, 800
+    t.append(task(
+        "pf-03", "project_finance", "easy",
+        "A borrower has EBITDA of 300 and net debt of 800. The covenant caps net debt/EBITDA "
+        "at 3.5x. How much additional net debt can it raise before breaching the covenant?",
+        eb * cov - nd4, "currency", solution="3.5*300 - 800",
+    ))
+
+    return t
+
+
+def main() -> None:
+    tasks = build()
+    OUT.parent.mkdir(parents=True, exist_ok=True)
+    with OUT.open("w", encoding="utf-8") as f:
+        for item in tasks:
+            f.write(json.dumps(item, ensure_ascii=False) + "\n")
+    print(f"wrote {len(tasks)} tasks to {OUT}")
+
+
+if __name__ == "__main__":
+    main()

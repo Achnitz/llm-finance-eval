@@ -1,0 +1,4 @@
+pytest>=8
+# optional, only to call real models:
+# anthropic
+# openai
