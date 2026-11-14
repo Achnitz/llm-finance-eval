@@ -3,6 +3,8 @@
 - "mock":      offline, answers from the key (sanity check of the pipeline)
 - "anthropic": needs ANTHROPIC_API_KEY and `pip install anthropic`
 - "openai":    needs OPENAI_API_KEY and `pip install openai`
+- "openrouter": needs OPENROUTER_API_KEY and `pip install openai`; one key for
+               models from many vendors (names as listed on openrouter.ai/models)
 """
 from __future__ import annotations
 
@@ -49,6 +51,24 @@ def openai_provider(model: str) -> Callable[[dict], str]:
     return call
 
 
+def openrouter_provider(model: str) -> Callable[[dict], str]:
+    """One key, many vendors (OpenAI, Google, Meta, DeepSeek, Mistral, Qwen...).
+    Model names follow openrouter.ai/models, e.g. "openai/gpt-5"."""
+    from openai import OpenAI
+
+    client = OpenAI(api_key=os.environ["OPENROUTER_API_KEY"],
+                    base_url="https://openrouter.ai/api/v1")
+
+    def call(task: dict) -> str:
+        resp = client.chat.completions.create(
+            model=model,
+            messages=[{"role": "system", "content": SYSTEM},
+                      {"role": "user", "content": task["prompt"]}],
+        )
+        return resp.choices[0].message.content or ""
+    return call
+
+
 def get_provider(name: str, model: str | None, tasks: list[dict]) -> Callable[[dict], str]:
     if name == "mock":
         return mock_provider({t["id"]: t["answer"] for t in tasks})
@@ -56,4 +76,8 @@ def get_provider(name: str, model: str | None, tasks: list[dict]) -> Callable[[d
         return anthropic_provider(model or "claude-sonnet-5-5")
     if name == "openai":
         return openai_provider(model or "gpt-5")
+    if name == "openrouter":
+        if not model:
+            raise ValueError("--model is required with openrouter (see openrouter.ai/models)")
+        return openrouter_provider(model)
     raise ValueError(f"unknown provider: {name}")

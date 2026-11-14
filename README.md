@@ -59,11 +59,16 @@ pip install anthropic            # or: pip install openai
 export ANTHROPIC_API_KEY=...
 python -m llm_finance_eval.run_eval --provider anthropic --model claude-sonnet-5-5
 
+# many vendors with one key (OpenRouter), several models in one go
+pip install openai
+export OPENROUTER_API_KEY=...
+python -m llm_finance_eval.run_eval --provider openrouter --model openai/gpt-5,google/gemini-2.5-pro
+
 # one category only
 python -m llm_finance_eval.run_eval --provider openai --model gpt-5 --category deal_mechanics
 ```
 
-Each run writes the raw responses (`results/*.jsonl`) and a scorecard (`results/*.md`) with accuracy by category and a list of misses.
+Each run writes the raw responses (`results/*.jsonl`) and a scorecard (`results/*.md`) with accuracy by category and a list of misses. Full runs also rebuild [`results/LEADERBOARD.md`](results/LEADERBOARD.md), which ranks the latest run of every model. Model names for OpenRouter are listed at openrouter.ai/models.
 
 ## Task format
 

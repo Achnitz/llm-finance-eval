@@ -1,19 +1,25 @@
-"""Run the benchmark against a model and write a scorecard.
+"""Run the benchmark against one or more models and write scorecards.
 
 Examples:
   python -m llm_finance_eval.run_eval --provider mock
   python -m llm_finance_eval.run_eval --provider anthropic --model claude-sonnet-5-5
+  python -m llm_finance_eval.run_eval --provider openrouter --model openai/gpt-5,google/gemini-2.5-pro
   python -m llm_finance_eval.run_eval --provider openai --model gpt-5 --category deal_mechanics
+
+After each run the leaderboard (results/LEADERBOARD.md) is rebuilt from every
+scorecard in results/.
 """
 from __future__ import annotations
 
 import argparse
 import json
+import time
 from collections import defaultdict
 from datetime import datetime, timezone
 from pathlib import Path
 
 from .grading import grade
+from .leaderboard import build_leaderboard
 from .providers import get_provider
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -46,21 +52,26 @@ def scorecard(rows: list[dict], tasks: list[dict], label: str) -> str:
     return "\n".join(lines) + "\n"
 
 
-def main() -> None:
-    ap = argparse.ArgumentParser()
-    ap.add_argument("--provider", default="mock", choices=["mock", "anthropic", "openai"])
-    ap.add_argument("--model", default=None)
-    ap.add_argument("--category", default=None)
-    ap.add_argument("--tasks", default=str(ROOT / "data" / "tasks.jsonl"))
-    args = ap.parse_args()
+def call_with_retry(call, task: dict, retries: int = 2) -> str:
+    """Retry transient API errors; a persistent failure is scored as a miss."""
+    for attempt in range(retries + 1):
+        try:
+            return call(task)
+        except Exception as exc:  # noqa: BLE001 - provider SDKs raise many types
+            if attempt == retries:
+                return f"API_ERROR: {type(exc).__name__}: {exc}"
+            time.sleep(2 * (attempt + 1))
+    return ""
 
-    tasks = load_tasks(Path(args.tasks), args.category)
-    call = get_provider(args.provider, args.model, tasks)
-    label = f"{args.provider}{':' + args.model if args.model else ''}"
+
+def run_model(provider: str, model: str | None, tasks: list[dict]) -> str:
+    call = get_provider(provider, model, tasks)
+    label = f"{provider}{':' + model if model else ''}"
+    print(f"\n=== {label} ===")
 
     rows = []
     for t in tasks:
-        response = call(t)
+        response = call_with_retry(call, t)
         result = grade(t, response)
         result["response"] = response
         rows.append(result)
@@ -75,6 +86,27 @@ def main() -> None:
     card = scorecard(rows, tasks, label)
     (out_dir / f"{safe}-{stamp}.md").write_text(card, encoding="utf-8")
     print("\n" + card)
+    return label
+
+
+def main() -> None:
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--provider", default="mock",
+                    choices=["mock", "anthropic", "openai", "openrouter"])
+    ap.add_argument("--model", default=None,
+                    help="one model or a comma-separated list, e.g. openai/gpt-5,google/gemini-2.5-pro")
+    ap.add_argument("--category", default=None)
+    ap.add_argument("--tasks", default=str(ROOT / "data" / "tasks.jsonl"))
+    args = ap.parse_args()
+
+    tasks = load_tasks(Path(args.tasks), args.category)
+    models = [m.strip() for m in args.model.split(",")] if args.model else [None]
+    for model in models:
+        run_model(args.provider, model, tasks)
+
+    if args.category is None:
+        board = build_leaderboard(ROOT / "results", tasks)
+        print(board)
 
 
 if __name__ == "__main__":
