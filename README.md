@@ -26,6 +26,22 @@ Built by an M&A practitioner, covering both sell-side and buy-side transactions 
 3. **Practitioner framing.** The prompts read like the requests a deal team gets, not exam questions. Several contain a trap: the sign of the NWC adjustment, NCI in the bridge, or a fair value that is below VIU.
 4. **Zero dependencies to run the core.** Model SDKs are only needed to call a model.
 
+## Results (v1, November 2026)
+
+| Model | Overall | Cost of capital | Valuation | Capital budgeting | Deal mechanics | Accounting | Project finance |
+|---|---|---|---|---|---|---|---|
+| Claude Opus 5.5 | **22/22** | 4/4 | 6/6 | 3/3 | 5/5 | 1/1 | 3/3 |
+| Claude Sonnet 5.5 | **22/22** | 4/4 | 6/6 | 3/3 | 5/5 | 1/1 | 3/3 |
+
+Raw scorecards are in [`results/`](results/).
+
+**What this tells us:** frontier models no longer miss single-step corporate finance calculations, traps included. The largest relative error across both runs was 0.27%, inside tolerance. The v1 set is saturated, which is a finding in itself. The next version targets where models still fail in real deal work:
+
+- **Multi-step chains:** projections → FCFF → DCF → EV-to-equity bridge in one prompt, where one early slip carries through to the answer
+- **Hidden deal traps:** debt-like items buried in a footnote, NWC peg definitions, capped earn-outs, real vs nominal growth mismatches
+- **Incomplete or contradictory inputs:** the right answer is to flag the problem, not to compute
+- **Model review:** spotting planted errors in a valuation model (see the upcoming `dcf-red-team`)
+
 ## Quickstart
 
 ```bash
