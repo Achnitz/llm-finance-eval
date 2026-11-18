@@ -247,6 +247,72 @@ def build() -> list[dict]:
         eb * cov - nd4, "currency", solution="3.5*300 - 800",
     ))
 
+    t += build_v2()
+    return t
+
+
+def build_v2() -> list[dict]:
+    """v2: hard tasks. Multi-step chains, hidden deal traps and inputs where the
+    right move is to flag the problem. v1 (above) is saturated by frontier models."""
+    t: list[dict] = []
+
+    # ---------------- Multi-step chains ----------------
+    # ms-01: revenue -> margins -> FCFF -> mid-year DCF -> EV-to-equity bridge -> per share
+    rev0, growth = 1000.0, [0.08, 0.07, 0.06, 0.05, 0.04]
+    margins = [0.22, 0.23, 0.24, 0.25, 0.25]
+    da_pct, capex_pct, nwc_pct, tax_r, nwc0 = 0.04, 0.06, 0.12, 0.25, 150.0
+    wacc_ms, g_ms = 0.095, 0.03
+    revs, rev = [], rev0
+    for gr in growth:
+        rev *= 1 + gr
+        revs.append(rev)
+    fcff, prev_nwc = [], nwc0
+    for r_, m_ in zip(revs, margins):
+        ebit = r_ * m_ - r_ * da_pct
+        d_nwc = nwc_pct * r_ - prev_nwc
+        fcff.append(ebit * (1 - tax_r) + r_ * da_pct - r_ * capex_pct - d_nwc)
+        prev_nwc = nwc_pct * r_
+    pv_explicit = sum(f / (1 + wacc_ms) ** (i + 0.5) for i, f in enumerate(fcff))
+    tv_ms = fcff[-1] * (1 + g_ms) / (wacc_ms - g_ms)
+    ev_ms = pv_explicit + tv_ms / (1 + wacc_ms) ** 5
+    debt_ms, cash_ms, trapped, lease_ms, nci_ms, assoc_ms, sh_ms = 900, 250, 40, 120, 80, 50, 100
+    net_debt_ms = debt_ms - (cash_ms - trapped) + lease_ms
+    eq_ms = ev_ms - net_debt_ms - nci_ms + assoc_ms
+    t.append(task(
+        "ms-01", "multi_step", "hard",
+        "You are valuing a mid-cap industrial company as of 31 December 2026 with a five-year "
+        "DCF (2027-2031).\n"
+        "- 2026 revenue was 1,000 (millions). Revenue grows 8%, 7%, 6%, 5% and 4% in 2027 to 2031.\n"
+        "- EBITDA margin is 22%, 23%, 24%, 25% and 25% in 2027 to 2031. EBITDA is reported "
+        "under IFRS 16, so lease payments are not in operating costs.\n"
+        "- D&A is 4% of revenue and capex is 6% of revenue every year (capex excludes "
+        "right-of-use asset additions).\n"
+        "- Net working capital was 150 at end-2026 (inflated by a one-off customer payment "
+        "delay). From 2027 it is held at 12% of same-year revenue.\n"
+        "- Tax rate on EBIT is 25%.\n"
+        "- WACC is 9.5%. Discount the explicit-year FCFF with the mid-year convention (year 1 "
+        "at 0.5 years, year 2 at 1.5 years, and so on).\n"
+        "- Terminal value: Gordon growth at end-2031, using 2031 FCFF grown by 3.0% nominal. "
+        "Discount the terminal value 5.0 years.\n"
+        "Balance sheet at 31 December 2026: gross financial debt 900; cash 250, of which 40 is "
+        "restricted cash in a foreign subsidiary that cannot be upstreamed (only freely "
+        "available cash reduces net debt); IFRS 16 lease liabilities 120; non-controlling "
+        "interests at fair value 80; a 30% stake in an associate worth 50; 100 million shares "
+        "outstanding, no dilutive instruments.\n"
+        "What is the equity value per share?",
+        eq_ms / sh_ms, "currency/share",
+        solution=(
+            "FCFF = EBIT*(1-t) + D&A - capex - dNWC. Year-1 dNWC = 12%*1,080 - 150 = -20.4 "
+            "(a cash release, because the opening NWC is the actual 150, not 12% of 2026 "
+            "revenue); later years = 12% of the revenue change. "
+            "Explicit flows at t-0.5, TV = FCFF2031*1.03/(0.095-0.03) at 5.0. Bridge: "
+            "net debt = 900 - (250-40) + 120 leases (EBITDA is post-IFRS 16, so leases are "
+            "debt-like); equity = EV - net debt - NCI + associate. Traps: missing the year-1 "
+            "NWC release (using 120 as opening NWC), mid-year on the TV, counting the restricted "
+            "cash, dropping the leases."
+        ),
+    ))
+
     return t
 
 

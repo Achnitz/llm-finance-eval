@@ -26,8 +26,10 @@ ROOT = Path(__file__).resolve().parent.parent
 
 
 def load_tasks(path: Path, category: str | None) -> list[dict]:
-    if not path.exists():
-        from .build_tasks import main as build_main
+    from .build_tasks import OUT, main as build_main
+    # Always rebuild the default task file, so a stale data/tasks.jsonl from an
+    # older checkout never hides new tasks. Custom --tasks files are used as-is.
+    if not path.exists() or path.resolve() == OUT.resolve():
         build_main()
     tasks = [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line]
     return [t for t in tasks if category is None or t["category"] == category]

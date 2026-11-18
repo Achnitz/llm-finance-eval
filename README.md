@@ -16,8 +16,9 @@ Built by an M&A practitioner, covering both sell-side and buy-side transactions 
 | Deal mechanics | 5 | Completion accounts, locked-box leakage, earn-out PV, EPS accretion/dilution, sponsor IRR |
 | Accounting | 1 | IAS 36 impairment (VIU vs FVLCD) |
 | Project finance | 3 | Sculpted debt sizing, DSCR, leverage covenant headroom |
+| Multi-step chains (v2, hard) | 1 | Revenue → margins → FCFF (capex, D&A, NWC) → mid-year DCF → EV-to-equity bridge → value per share |
 
-**22 tasks** in total, each with a deterministic numeric answer.
+**23 tasks** in total, each with a deterministic numeric answer: the 22-task v1 set plus 1 hard v2 task (v2 is in progress, see below).
 
 ## Design principles
 
@@ -27,6 +28,8 @@ Built by an M&A practitioner, covering both sell-side and buy-side transactions 
 4. **Zero dependencies to run the core.** Model SDKs are only needed to call a model.
 
 ## Results (v1, November 2026)
+
+These scores are on the **22-task v1 set**. The hard v2 tasks added since then have not been run yet.
 
 | Model | Overall | Cost of capital | Valuation | Capital budgeting | Deal mechanics | Accounting | Project finance |
 |---|---|---|---|---|---|---|---|
@@ -41,6 +44,14 @@ Raw scorecards are in [`results/`](results/).
 - **Hidden deal traps:** debt-like items buried in a footnote, NWC peg definitions, capped earn-outs, real vs nominal growth mismatches
 - **Incomplete or contradictory inputs:** the right answer is to flag the problem, not to compute
 - **Model review:** spotting planted errors in a valuation model (see the upcoming `dcf-red-team`)
+
+## v2: hard tasks (in progress)
+
+v2 tasks live in `build_v2()` in [`build_tasks.py`](llm_finance_eval/build_tasks.py), all with `difficulty: "hard"` and a `solution` that names the trap. Each trap is checked in the tests to move the answer outside the tolerance, so a model cannot pass by accident.
+
+| ID | Category | What it tests | Where it breaks |
+|---|---|---|---|
+| ms-01 | multi_step | Five-year FCFF build, mid-year DCF, Gordon TV, EV-to-equity bridge, per share | Opening NWC above target (year-1 cash release), TV discounted at 5.0 not 4.5, restricted cash, IFRS 16 leases as debt |
 
 ## Quickstart
 
@@ -95,7 +106,7 @@ llm_finance_eval/
   providers.py     # mock / Anthropic / OpenAI callers
   run_eval.py      # runner + scorecard
 data/tasks.jsonl   # generated task set (built from build_tasks.py, git-ignored)
-tests/             # grader unit tests (pytest)
+tests/             # grader and task-set tests, incl. independent recomputation of v2 answers (pytest)
 ```
 
 ## Roadmap
