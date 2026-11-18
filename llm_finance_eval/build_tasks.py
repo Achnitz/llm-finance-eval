@@ -313,6 +313,65 @@ def build_v2() -> list[dict]:
         ),
     ))
 
+    # ---------------- Hidden deal traps ----------------
+    # trap-01: SPA definitions decide what is debt, what is NWC and how the peg works
+    ev_spa, loan, accrued_int, div_payable, tax_payable = 1500.0, 420.0, 9.0, 24.0, 16.0
+    cash_total, cash_pledged, env_prov, env_tax = 130.0, 30.0, 50.0, 0.34
+    bonus, bonus_charges = 40.0, 0.25
+    reported_nwc, collar = 190.0, 12.0
+    peg_months = [188, 196, 214, 228, 236, 221, 203, 194, 187, 192, 225, 176]
+    indebtedness = (loan + accrued_int + div_payable + tax_payable
+                    + env_prov * (1 - env_tax) + bonus * (1 + bonus_charges))
+    free_cash = cash_total - cash_pledged
+    closing_nwc = reported_nwc + accrued_int + div_payable + tax_payable
+    peg = sum(peg_months) / len(peg_months)
+    gap = closing_nwc - peg
+    nwc_adj = max(abs(gap) - collar, 0.0) * (1 if gap > 0 else -1)
+    t.append(task(
+        "trap-01", "deal_traps", "hard",
+        "You are on the buy-side deal team checking the completion statement for the "
+        "acquisition of 100% of a company. Completion date is 30 June 2026. The agreed "
+        "enterprise value is 1,500 (millions), set on a pre-IFRS 16 EBITDA multiple.\n"
+        "SPA definitions:\n"
+        "- Purchase price = enterprise value - Indebtedness + Free Cash + NWC Adjustment.\n"
+        "- Indebtedness means bank debt including accrued interest; dividends declared but "
+        "unpaid; income tax payable; environmental remediation provisions, net of the tax "
+        "shield at 34%; and transaction bonuses triggered by the deal, including employer "
+        "payroll charges, with no tax effect. IFRS 16 lease liabilities are excluded.\n"
+        "- Free Cash means cash at bank excluding any cash that is pledged or restricted.\n"
+        "- Closing NWC excludes every item that counts as Indebtedness or cash.\n"
+        "- Target NWC is the simple average of the twelve month-end NWC balances for 2025, "
+        "already stated on the SPA definition.\n"
+        "- NWC Adjustment: no adjustment if Closing NWC is within 12 of Target NWC. Outside "
+        "that band, the price moves only by the amount beyond the band, in the direction of "
+        "the difference.\n"
+        "Month-end NWC for 2025, January to December: 188, 196, 214, 228, 236, 221, 203, 194, "
+        "187, 192, 225, 176.\n"
+        "Seller's completion balance sheet at 30 June 2026:\n"
+        "- Bank loan principal 420.\n"
+        "- Cash at bank 130, including a 30 deposit pledged against a bank guarantee.\n"
+        "- Reported net working capital 190. Its other current liabilities line includes "
+        "accrued interest on the bank loan of 9, a dividend declared in May and not yet paid "
+        "of 24, and income tax payable of 16.\n"
+        "- Non-current environmental remediation provision 50 (deductible when paid).\n"
+        "- IFRS 16 lease liabilities 85, shown separately from NWC.\n"
+        "Disclosure letter, item 14: retention bonuses of 40 become payable to management on "
+        "completion. They are not accrued in the balance sheet. Employer payroll charges on "
+        "them are 25%.\n"
+        "What is the purchase price payable for the shares?",
+        ev_spa - indebtedness + free_cash + nwc_adj, "currency",
+        solution=(
+            "Indebtedness = 420 + 9 + 24 + 16 + 50*(1-34%) + 40*1.25 = 552. Free Cash = 130 - 30 "
+            "= 100. Closing NWC = 190 + 9 + 24 + 16 = 239, because the three debt-like items "
+            "must leave reported NWC. Target = average of the 12 months = 205. Gap = +34, and "
+            "the band works as a deductible, so the adjustment is +22. Price = 1,500 - 552 + "
+            "100 + 22 = 1,070. Traps: leaving the reclassified items in NWC, paying the full 34 "
+            "instead of the excess over the band, using December or June as the peg, taking the "
+            "provision gross of tax, missing the unaccrued bonus or its payroll charges, "
+            "counting the pledged cash, deducting the leases."
+        ),
+    ))
+
     return t
 
 
