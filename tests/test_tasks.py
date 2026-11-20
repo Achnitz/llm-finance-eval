@@ -72,3 +72,42 @@ def test_trap01_answer_and_traps():
     }
     for name, wrong in slips.items():
         assert not grade(t, f"FINAL ANSWER: {wrong}")["correct"], name
+
+
+def _lbo01_irr(fee=0.02, recap_fee=0.01, exit_cost=0.015, mip=0.10,
+               tax_after_interest=True, dividend_at_exit=False) -> float:
+    """Independent recomputation of lbo-01; arguments reproduce each classic slip."""
+    from llm_finance_eval.finance import irr
+
+    equity = 1000 * (1 + fee) - 500
+    debt, flows = 500.0, [-equity, 0.0, 0.0, 0.0, 0.0, 0.0]
+    for year in range(1, 6):
+        ebitda = 100 * 1.06 ** year
+        interest = 0.08 * debt
+        base = ebitda - 25 - (interest if tax_after_interest else 0)
+        debt -= ebitda - 30 - 5 - interest - 0.25 * base
+        if year == 3:
+            new = 4.5 * ebitda
+            flows[5 if dividend_at_exit else 3] += new * (1 - recap_fee) - debt
+            debt = new
+    flows[5] += (9.5 * ebitda * (1 - exit_cost) - debt) * (1 - mip)
+    return irr(flows) * 100
+
+
+def test_lbo01_answer_and_traps():
+    t = next(x for x in build_v2() if x["id"] == "lbo-01")
+    assert t["category"] == "lbo" and t["unit"] == "%"
+    ref = _lbo01_irr()
+    assert abs(t["answer"] - ref) < 1e-4
+    assert 10.2 < t["answer"] < 10.4
+    assert grade(t, f"FINAL ANSWER: {ref:.2f}")["correct"]
+    slips = {
+        "fees left out of the equity cheque": _lbo01_irr(fee=0.0),
+        "recap fee ignored": _lbo01_irr(recap_fee=0.0),
+        "exit costs ignored": _lbo01_irr(exit_cost=0.0),
+        "MIP ignored": _lbo01_irr(mip=0.0),
+        "tax computed before interest": _lbo01_irr(tax_after_interest=False),
+        "dividend timed at exit": _lbo01_irr(dividend_at_exit=True),
+    }
+    for name, wrong in slips.items():
+        assert not grade(t, f"FINAL ANSWER: {wrong:.2f}")["correct"], name

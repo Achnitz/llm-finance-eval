@@ -372,6 +372,62 @@ def build_v2() -> list[dict]:
         ),
     ))
 
+    # ---------------- LBO ----------------
+    # lbo-01: sponsor IRR with a cash sweep, a dividend recap in year 3, exit costs and a MIP
+    ebitda0, eb_g, entry_x, exit_x = 100.0, 0.06, 10.0, 9.5
+    fee_entry, lev0, kd, da_l, capex_l, dnwc_l, tax_l = 0.02, 5.0, 0.08, 25.0, 30.0, 5.0, 0.25
+    recap_x, recap_fee, exit_cost, mip = 4.5, 0.01, 0.015, 0.10
+    equity_in = entry_x * ebitda0 * (1 + fee_entry) - lev0 * ebitda0
+    sponsor_flows, debt_l = [-equity_in], lev0 * ebitda0
+    for yr in range(1, 6):
+        eb_y = ebitda0 * (1 + eb_g) ** yr
+        int_y = debt_l * kd  # on the opening balance
+        tax_y = (eb_y - da_l - int_y) * tax_l
+        debt_l -= eb_y - capex_l - dnwc_l - int_y - tax_y  # 100% cash sweep
+        dist = 0.0
+        if yr == 3:
+            new_debt = recap_x * eb_y
+            dist = new_debt * (1 - recap_fee) - debt_l
+            debt_l = new_debt
+        sponsor_flows.append(dist)
+    exit_equity = exit_x * eb_y * (1 - exit_cost) - debt_l
+    sponsor_flows[-1] += exit_equity * (1 - mip)
+    t.append(task(
+        "lbo-01", "lbo", "hard",
+        "A private equity sponsor buys 100% of a company on 31 December 2026 and sells it on "
+        "31 December 2031. Figures in millions.\n"
+        "Entry: LTM EBITDA 100, purchase enterprise value 10.0x EBITDA, cash-free and "
+        "debt-free. Transaction fees of 2% of the enterprise value are paid at closing and "
+        "funded by the sponsor. Acquisition debt is 5.0x EBITDA; the sponsor funds the rest "
+        "with ordinary equity.\n"
+        "Operations, each year 2027 to 2031: EBITDA grows 6% a year; D&A is 25, capex is 30 and "
+        "the increase in net working capital is 5. Cash tax is 25% of (EBITDA - D&A - "
+        "interest). Interest is 8% on the debt balance at the start of each year.\n"
+        "Cash sweep: all cash left after capex, working capital, interest and tax repays debt "
+        "at each year-end; the company holds no cash.\n"
+        "Dividend recap at 31 December 2029, after that year's sweep: a new facility sized at "
+        "4.5x 2029 EBITDA refinances the remaining debt. An arrangement fee of 1% of the new "
+        "facility is paid out of the proceeds, and everything left is paid out at once as a "
+        "dividend to the sponsor. The new facility carries the same 8% interest and the same "
+        "cash sweep.\n"
+        "Exit at 31 December 2031 at 9.5x 2031 EBITDA. Exit transaction costs are 1.5% of "
+        "the exit enterprise value. The remaining debt is repaid from the proceeds.\n"
+        "Management incentive plan: management receives 10% of the equity proceeds at exit "
+        "(after exit costs and debt repayment). It takes no part in the 2029 dividend.\n"
+        "What is the sponsor's IRR, in percent?",
+        irr(sponsor_flows) * 100, "%", tol=0.01,
+        solution=(
+            "Equity in = 1,000*1.02 - 500 = 520 (fees raise the cheque). Interest on the "
+            "opening balance, tax after interest, full sweep: debt is 419.1 after 2029's sweep. "
+            "Recap: 4.5*119.1 = 536.0 new debt, dividend = 536.0*0.99 - 419.1 = 111.5 at year 3. "
+            "Sweep resumes from 536.0, ending at ~460.7 in 2031. Exit equity = 9.5*133.8*0.985 "
+            "- 460.7, sponsor keeps 90%. IRR on (-520, 0, 0, dividend, 0, exit share). Traps: "
+            "leaving fees out of the equity cheque, deducting the recap fee twice or not at all, "
+            "putting the dividend at exit (MOIC thinking), skipping exit costs or the MIP, tax "
+            "before interest."
+        ),
+    ))
+
     return t
 
 

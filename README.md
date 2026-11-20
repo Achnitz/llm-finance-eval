@@ -18,8 +18,9 @@ Built by an M&A practitioner, covering both sell-side and buy-side transactions 
 | Project finance | 3 | Sculpted debt sizing, DSCR, leverage covenant headroom |
 | Multi-step chains (v2, hard) | 1 | Revenue → margins → FCFF (capex, D&A, NWC) → mid-year DCF → EV-to-equity bridge → value per share |
 | Deal traps (v2, hard) | 1 | Completion statement under SPA definitions: debt-like items, NWC peg and collar |
+| LBO (v2, hard) | 1 | Sponsor IRR with cash sweep, year-3 dividend recap, exit costs and a management incentive plan |
 
-**24 tasks** in total, each with a deterministic numeric answer: the 22-task v1 set plus 2 hard v2 tasks (v2 is in progress, see below).
+**25 tasks** in total, each with a deterministic numeric answer: the 22-task v1 set plus 3 hard v2 tasks (v2 is in progress, see below).
 
 ## Design principles
 
@@ -54,6 +55,7 @@ v2 tasks live in `build_v2()` in [`build_tasks.py`](llm_finance_eval/build_tasks
 |---|---|---|---|
 | ms-01 | multi_step | Five-year FCFF build, mid-year DCF, Gordon TV, EV-to-equity bridge, per share | Opening NWC above target (year-1 cash release), TV discounted at 5.0 not 4.5, restricted cash, IFRS 16 leases as debt |
 | trap-01 | deal_traps | Purchase price from a completion statement, applying the SPA definitions of Indebtedness, Free Cash and NWC | Debt-like items sitting inside reported NWC, collar that works as a deductible, 12-month average peg, provision net of tax, unaccrued bonus plus payroll charges in the disclosure letter, pledged cash, leases excluded |
+| lbo-01 | lbo | Sponsor IRR through a five-year hold: interest on opening debt, tax after interest, 100% cash sweep, dividend recap in year 3, exit at a lower multiple | Fees left out of the equity cheque, recap arrangement fee, dividend timed at exit instead of year 3, exit costs, 10% MIP on exit equity only, tax before interest |
 
 ## Quickstart
 
